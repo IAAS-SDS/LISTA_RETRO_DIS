@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Retroalimentacion INS</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <section class="sheet-card">
+      <section class="access-banner">
+        <div class="access-banner-copy">
+          <strong>Acceso por correo autorizado</strong>
+          <span id="accessBannerText">Validando acceso...</span>
+        </div>
+        <a href="login.html" class="access-banner-link">Cambiar correo</a>
+      </section>
+
+      <header class="hero">
+        <img src="IMAGE/encabezado.png" alt="Salud e Instituto Nacional de Salud" class="hero-logo" />
+        <h1>RETROALIMENTACION CONTROL DE CALIDAD DE LAS BASES DE DATOS WHONET</h1>
+      </header>
+
+      <section class="meta-panel">
+        <div class="toolbar">
+          <label class="searchbox searchbox-sheet">
+            <span>Hoja / mes</span>
+            <select id="sheetSelect"></select>
+          </label>
+          <label class="searchbox searchbox-lab is-hidden" id="laboratoryFilterBox">
+            <span>Laboratory</span>
+            <select id="laboratoryFilter"></select>
+          </label>
+          <label class="searchbox">
+            <span id="searchLabel">Buscar institucion</span>
+            <input type="search" id="searchInput" placeholder="Escribe una institucion..." />
+          </label>
+          <button type="button" class="ghost-button" id="btnRecargar">Recargar datos</button>
+        </div>
+
+        <div class="status-strip">
+          <div class="status-strip-main">
+            <span class="status-badge" id="backendBadge">Google Sheets</span>
+            <div class="success-badges" id="successBadges"></div>
+            <p id="statusMessage">Preparando informacion...</p>
+          </div>
+          <div class="support-toolbar">
+            <div class="support-toolbar-copy" id="supportToolbarCopy">Sube una sola base y se asignara a los registros visibles con observaciones.</div>
+            <input type="file" id="supportFileInput" class="support-input-hidden" />
+            <div class="support-toolbar-actions" id="supportToolbarActions"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="table-panel">
+        <div class="table-scroll">
+          <table class="retro-table">
+            <thead>
+              <tr>
+                <th>Pais</th>
+                <th>Laboratory</th>
+                <th>Origin</th>
+                <th>Patient ID</th>
+                <th>Institucion</th>
+                <th>Spec Num</th>
+                <th>Spec Date</th>
+                <th>Observaciones</th>
+                <th>Respuesta UPGD</th>
+                <th class="col-acciones">Guardar</th>
+              </tr>
+            </thead>
+            <tbody id="tablaRetroBody">
+              <tr>
+                <td colspan="10" class="empty-state">Cargando registros...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
