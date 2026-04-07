@@ -1,5 +1,5 @@
 const CONFIG = {
-  appsScriptUrl: "https://script.google.com/macros/s/AKfycbw_gannDGlN448wha4QpFktd29Q6VZLp3He-R7CMysO-61-h9kVZa6u2c4T90hU1gYb/exec",
+  appsScriptUrl: "https://script.google.com/macros/s/AKfycbyCC7Z89ffT-W3DPw35SBY9YfUfSHAjRKyBYsTkGt8OqbsCvfcl5ncD58bXa_fGlv1k/exec",
   maxUploadSizeMb: 10,
   allowedUploadExtensions: [
     "SIR", "DBF", "COL", "ACP", "BIS", "CCC", "CVC", "CAF", "CSB", "FTI",

@@ -208,7 +208,7 @@ function buildDataset_(sheetName, email) {
     return {
       success: true,
       accessDenied: true,
-      message: `El correo ${normalizedEmail} no presenta registros en ${activeSheetName}.`,
+      message: `El correo ${normalizedEmail} no cuenta con acceso.`,
       rows: []
     };
   }
@@ -247,7 +247,7 @@ function validateEmailAccess_(email) {
     return {
       success: true,
       accessGranted: false,
-      message: `El correo ${normalizedEmail} no aparece en la hoja ${ACCESS_SHEET_NAME}.`
+      message: `El correo ${normalizedEmail} no cuenta con acceso.`
     };
   }
 
