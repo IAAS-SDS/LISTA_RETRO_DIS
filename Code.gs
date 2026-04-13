@@ -4,7 +4,6 @@ const ACCESS_SHEET_NAME = "ACCESO";
 const DATA_START_ROW = 2;
 
 const COLUMNS = {
-  country: 1,
   laboratory: 2,
   origin: 3,
   patientId: 4,
@@ -13,7 +12,8 @@ const COLUMNS = {
   specDate: 16,
   feedback: 130,
   response: 131,
-  linkBase: 132
+  labResponse: 132,
+  linkBase: 133
 };
 
 const DRIVE_FOLDER_IDS = {
@@ -102,10 +102,11 @@ function saveResponse_(payload) {
 
   assertRowEmailAuthorized_(sheet, rowNumber, email);
   sheet.getRange(rowNumber, COLUMNS.response).setValue(payload.response || "");
+  sheet.getRange(rowNumber, COLUMNS.labResponse).setValue(payload.labResponse || "");
 
   return jsonOutput({
     success: true,
-    message: "Respuesta guardada correctamente.",
+    message: "Observacion guardada correctamente.",
     rowNumber
   });
 }
@@ -190,7 +191,6 @@ function buildDataset_(sheetName, email) {
 
       rows.push({
         rowNumber: DATA_START_ROW + index,
-        country: row[COLUMNS.country - 1] || "",
         laboratory,
         origin: row[COLUMNS.origin - 1] || "",
         patientId: row[COLUMNS.patientId - 1] || "",
@@ -199,6 +199,7 @@ function buildDataset_(sheetName, email) {
         specDate: row[COLUMNS.specDate - 1] || "",
         feedback,
         response: row[COLUMNS.response - 1] || "",
+        labResponse: row[COLUMNS.labResponse - 1] || "",
         linkBase: row[COLUMNS.linkBase - 1] || ""
       });
     });

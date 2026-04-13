@@ -252,7 +252,8 @@ body {
 }
 
 .ghost-button,
-.save-button {
+.save-button,
+.pdf-button {
   min-height: 46px;
   padding: 10px 16px;
   border: none;
@@ -266,13 +267,15 @@ body {
 }
 
 .ghost-button:hover,
-.save-button:hover {
+.save-button:hover,
+.pdf-button:hover {
   background: #214d84;
   transform: translateY(-1px);
 }
 
 .ghost-button:disabled,
-.save-button:disabled {
+.save-button:disabled,
+.pdf-button:disabled {
   opacity: 0.7;
   cursor: wait;
 }
@@ -386,7 +389,7 @@ body {
 
 .retro-table {
   width: 100%;
-  min-width: 1700px;
+  min-width: 1600px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -394,7 +397,7 @@ body {
 .retro-table th,
 .retro-table td {
   border: 1px solid #111;
-  padding: 8px 6px;
+  padding: 8px 5px;
   font-size: 13px;
   vertical-align: top;
   background: #fff;
@@ -415,12 +418,12 @@ body {
 
 .retro-table th:nth-child(2),
 .retro-table td:nth-child(2) {
-  width: 7%;
+  width: 6%;
 }
 
 .retro-table th:nth-child(3),
 .retro-table td:nth-child(3) {
-  width: 7%;
+  width: 8%;
 }
 
 .retro-table th:nth-child(4),
@@ -430,27 +433,27 @@ body {
 
 .retro-table th:nth-child(5),
 .retro-table td:nth-child(5) {
-  width: 13%;
+  width: 9%;
 }
 
 .retro-table th:nth-child(6),
 .retro-table td:nth-child(6) {
-  width: 10%;
+  width: 7%;
 }
 
 .retro-table th:nth-child(7),
 .retro-table td:nth-child(7) {
-  width: 8%;
+  width: 23%;
 }
 
 .retro-table th:nth-child(8),
 .retro-table td:nth-child(8) {
-  width: 18%;
+  width: 13%;
 }
 
 .retro-table th:nth-child(9),
 .retro-table td:nth-child(9) {
-  width: 16%;
+  width: 13%;
 }
 
 .retro-table th:nth-child(10),
@@ -470,7 +473,7 @@ body {
 
 .row-response {
   min-height: 140px;
-  padding: 10px 12px;
+  padding: 10px 10px;
   resize: vertical;
   background: #fff;
   color: #000;
@@ -482,6 +485,16 @@ body {
 .save-button {
   width: 100%;
   min-width: 88px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.pdf-button {
+  background: #1d6b43;
+}
+
+.pdf-button:hover {
+  background: #258554;
 }
 
 .row-status {
@@ -536,6 +549,6 @@ body {
   }
 
   .retro-table {
-    min-width: 1500px;
+    min-width: 1450px;
   }
 }

@@ -1,5 +1,5 @@
 const CONFIG = {
-  appsScriptUrl: "https://script.google.com/macros/s/AKfycbyCC7Z89ffT-W3DPw35SBY9YfUfSHAjRKyBYsTkGt8OqbsCvfcl5ncD58bXa_fGlv1k/exec",
+  appsScriptUrl: "https://script.google.com/macros/s/AKfycbxAlqgoBhCfYakuk3OigiWN9cz9pvTSYSBprvsiSH5XHtNFCQDQNswpWUyg1YwTMq3M/exec",
   maxUploadSizeMb: 10,
   allowedUploadExtensions: [
     "SIR", "DBF", "COL", "ACP", "BIS", "CCC", "CVC", "CAF", "CSB", "FTI",
@@ -37,6 +37,7 @@ const state = {
   authorizedEmail: "",
   usingRemote: true,
   isUploadingSupport: false,
+  isGeneratingPdf: false,
   laboratoryFilter: "",
   pendingUploadLaboratory: "",
   editingLocked: false,
@@ -96,8 +97,8 @@ function isAdminUser() {
 
 function refreshSearchUi() {
   if (isAdminUser()) {
-    els.searchLabel.textContent = "Buscar institucion, patient id o numero de muestra";
-    els.searchInput.placeholder = "Escribe una institucion, Patient ID o numero de muestra...";
+    els.searchLabel.textContent = "Buscar institucion, id de paciente o numero de muestra";
+    els.searchInput.placeholder = "Escribe una institucion, ID de paciente o numero de muestra...";
     els.laboratoryFilterBox.classList.remove("is-hidden");
     return;
   }
@@ -186,7 +187,6 @@ async function fetchDataset(forceRemoteRefresh) {
 function normalizeRows(rows) {
   return rows.map((row, index) => ({
     rowNumber: row.rowNumber || index + 2,
-    country: row.country || "",
     laboratory: row.laboratory || "",
     origin: row.origin || "",
     patientId: row.patientId || "",
@@ -195,9 +195,11 @@ function normalizeRows(rows) {
     specDate: row.specDate || "",
     feedback: row.feedback || "",
     response: row.response || "",
+    labResponse: row.labResponse || "",
     linkBase: row.linkBase || "",
     isSaving: false,
-    statusText: row.response ? "Respuesta cargada." : "Sin respuesta registrada."
+    statusText: row.response ? "Observacion cargada." : "Sin observacion registrada.",
+    labStatusText: row.labResponse ? "Observacion cargada." : "Sin observacion registrada."
   }));
 }
 
@@ -213,7 +215,6 @@ function renderRows() {
 
     return `
       <tr data-row-key="${escapeHtml(getRowKey(row))}">
-        <td>${escapeHtml(row.country)}</td>
         <td>${escapeHtml(row.laboratory)}</td>
         <td>${escapeHtml(row.origin)}</td>
         <td>${escapeHtml(row.patientId)}</td>
@@ -226,11 +227,23 @@ function renderRows() {
             class="row-response"
             data-role="response"
             data-row-key="${escapeHtml(getRowKey(row))}"
-            placeholder="Escribe aqui la respuesta de la UPGD..."
+            placeholder="Escribe aqui las observaciones de la UPGD..."
             ${state.editingLocked ? "disabled" : ""}
           >${escapeHtml(row.response)}</textarea>
           <div class="row-status ${statusClass}" data-role="status" data-row-key="${escapeHtml(getRowKey(row))}">
             ${escapeHtml(state.editingLocked ? `Edicion cerrada. Fecha limite: ${formatDeadlineForDisplay(state.activeDeadline)}.` : row.statusText)}
+          </div>
+        </td>
+        <td class="cell-response">
+          <textarea
+            class="row-response"
+            data-role="labResponse"
+            data-row-key="${escapeHtml(getRowKey(row))}"
+            placeholder="Escribe aqui las observaciones de laboratorio..."
+            ${state.editingLocked ? "disabled" : ""}
+          >${escapeHtml(row.labResponse)}</textarea>
+          <div class="row-status ${row.isSaving ? "pending" : row.labResponse.trim() ? "success" : ""}" data-role="labStatus" data-row-key="${escapeHtml(getRowKey(row))}">
+            ${escapeHtml(state.editingLocked ? `Edicion cerrada. Fecha limite: ${formatDeadlineForDisplay(state.activeDeadline)}.` : row.labStatusText)}
           </div>
         </td>
         <td>
@@ -290,6 +303,21 @@ function bindRowEvents() {
       autoResizeTextarea(textarea);
     });
   });
+
+  els.tablaRetroBody.querySelectorAll('[data-role="labResponse"]').forEach(textarea => {
+    textarea.addEventListener("input", event => {
+      const row = state.rows.find(item => getRowKey(item) === textarea.dataset.rowKey);
+      if (!row) {
+        return;
+      }
+
+      row.labResponse = event.target.value;
+      row.labStatusText = "Cambios pendientes por guardar.";
+      syncFilteredRow(row);
+      updateRowStatus(row, "labStatus", "pending");
+      autoResizeTextarea(textarea);
+    });
+  });
 }
 
 function syncFilteredRow(sourceRow) {
@@ -317,7 +345,6 @@ function applyFilters() {
     }
 
     const joined = [
-      row.country,
       row.laboratory,
       row.origin,
       row.patientId,
@@ -325,7 +352,8 @@ function applyFilters() {
       row.specNum,
       row.specDate,
       row.feedback,
-      row.response
+      row.response,
+      row.labResponse
     ].join(" ").toLowerCase();
 
     return joined.includes(query);
@@ -347,20 +375,219 @@ async function saveRow(rowKey) {
 
   row.isSaving = true;
   row.statusText = "Guardando cambios...";
+  row.labStatusText = "Guardando cambios...";
   syncFilteredRow(row);
   renderRows();
 
   try {
     await saveResponseRemote(row);
-    row.statusText = "Respuesta guardada correctamente.";
+    row.statusText = "Observacion guardada correctamente.";
+    row.labStatusText = "Observacion guardada correctamente.";
   } catch (error) {
-    console.error("Error guardando respuesta:", error);
-    row.statusText = "No se pudo guardar la respuesta.";
+    console.error("Error guardando observaciones:", error);
+    row.statusText = "No se pudo guardar la observacion.";
+    row.labStatusText = "No se pudo guardar la observacion.";
   } finally {
     row.isSaving = false;
     syncFilteredRow(row);
     renderRows();
   }
+}
+
+async function generatePdfSupport() {
+  const rows = getSupportTargetRows();
+  if (state.isGeneratingPdf) {
+    return;
+  }
+
+  if (!rows.length) {
+    setScreenStatus("No hay registros visibles con observaciones para generar el PDF.");
+    return;
+  }
+
+  if (!window.jspdf || !window.jspdf.jsPDF) {
+    setScreenStatus("No fue posible generar el PDF porque jsPDF no esta disponible.");
+    return;
+  }
+
+  state.isGeneratingPdf = true;
+  refreshSupportToolbar();
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
+    await renderSupportPdf(doc, rows);
+    doc.save(buildPdfFileName(rows));
+    setScreenStatus(`PDF generado correctamente con ${rows.length} registros visibles.`);
+  } catch (error) {
+    console.error("Error generando PDF:", error);
+    setScreenStatus("No fue posible generar el PDF.");
+  } finally {
+    state.isGeneratingPdf = false;
+    refreshSupportToolbar();
+  }
+}
+
+async function renderSupportPdf(doc, rows) {
+  const logoDataUrl = await getImageDataUrl("IMAGE/encabezado.png");
+  rows.forEach((row, index) => {
+    if (index > 0) {
+      doc.addPage();
+    }
+
+    renderSupportPdfPage(doc, row, index + 1, rows.length, logoDataUrl);
+  });
+}
+
+function renderSupportPdfPage(doc, row, pageNumber, totalPages, logoDataUrl) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 30;
+  const contentWidth = pageWidth - margin * 2;
+  let y = 24;
+
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, "PNG", (pageWidth - 300) / 2, y, 300, 50);
+    y += 62;
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor(0, 0, 0);
+  doc.text("RETROALIMENTACION CONTROL DE CALIDAD DE LAS BASES DE DATOS WHONET", pageWidth / 2, y, { align: "center" });
+  y += 24;
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Hoja: ${formatSheetLabel(state.currentSheetName)}`, margin, y);
+  doc.text(`Registro ${pageNumber} de ${totalPages} | Generado: ${formatPdfDate(new Date())}`, pageWidth - margin, y, { align: "right" });
+  y += 18;
+
+  y = drawInfoGrid(doc, row, margin, y, contentWidth);
+  y += 18;
+  drawRetroTable(doc, row, margin, y, contentWidth, pageHeight - margin);
+}
+
+function drawInfoGrid(doc, row, x, y, width) {
+  const fields = [
+    ["Laboratorio", row.laboratory || "Sin dato"],
+    ["Origen", row.origin || "Sin dato"],
+    ["ID de paciente", row.patientId || "Sin dato"],
+    ["Institucion", row.institution || "Sin dato"],
+    ["Numero de muestra", row.specNum || "Sin dato"],
+    ["Fecha de muestra", row.specDate || "Sin dato"]
+  ];
+  const columns = 3;
+  const cellWidth = width / columns;
+  const rowHeight = 34;
+
+  doc.setLineWidth(0.6);
+  fields.forEach((field, index) => {
+    const col = index % columns;
+    const rowIndex = Math.floor(index / columns);
+    const cellX = x + col * cellWidth;
+    const cellY = y + rowIndex * rowHeight;
+
+    doc.setFillColor(22, 57, 98);
+    doc.rect(cellX, cellY, cellWidth * 0.36, rowHeight, "FD");
+    doc.setFillColor(255, 255, 255);
+    doc.rect(cellX + cellWidth * 0.36, cellY, cellWidth * 0.64, rowHeight, "FD");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.8);
+    doc.setTextColor(255, 255, 255);
+    doc.text(field[0], cellX + 6, cellY + 20);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.2);
+    doc.setTextColor(0, 0, 0);
+    doc.text(doc.splitTextToSize(String(field[1]), cellWidth * 0.64 - 10), cellX + cellWidth * 0.36 + 6, cellY + 14);
+  });
+
+  return y + Math.ceil(fields.length / columns) * rowHeight;
+}
+
+function drawRetroTable(doc, row, x, y, width, bottomLimit) {
+  const columns = [
+    { title: "OBSERVACIONES", value: row.feedback || "Sin informacion registrada.", width: width * 0.36 },
+    { title: "OBSERVACIONES DE UPGD", value: row.response || "Sin observacion registrada.", width: width * 0.32 },
+    { title: "OBSERVACIONES DE LABORATORIO", value: row.labResponse || "Sin observacion registrada.", width: width * 0.32 }
+  ];
+  const headerHeight = 26;
+  const bodyY = y + headerHeight;
+  const bodyHeight = Math.max(150, bottomLimit - bodyY - 18);
+  let currentX = x;
+
+  doc.setLineWidth(0.6);
+  columns.forEach(column => {
+    doc.setFillColor(22, 57, 98);
+    doc.rect(currentX, y, column.width, headerHeight, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(255, 255, 255);
+    doc.text(doc.splitTextToSize(column.title, column.width - 10), currentX + column.width / 2, y + 11, { align: "center" });
+
+    doc.setFillColor(255, 255, 255);
+    doc.rect(currentX, bodyY, column.width, bodyHeight, "FD");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.2);
+    doc.setTextColor(0, 0, 0);
+    doc.text(doc.splitTextToSize(String(column.value), column.width - 12), currentX + 6, bodyY + 14);
+    currentX += column.width;
+  });
+}
+
+async function getImageDataUrl(path) {
+  try {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.src = new URL(path, window.location.href).href;
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = reject;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d");
+    context.drawImage(image, 0, 0);
+    return canvas.toDataURL("image/png");
+  } catch (error) {
+    console.warn("No fue posible cargar el encabezado para el PDF:", error);
+    return "";
+  }
+}
+
+function buildPdfFileName(rows) {
+  const labs = [...new Set(rows.map(row => String(row.laboratory || "").trim()).filter(Boolean))];
+  const parts = [
+    "retro_dis",
+    state.currentSheetName,
+    labs.length === 1 ? labs[0] : "varios_laboratorios",
+    `${rows.length}_registros`
+  ].filter(Boolean);
+
+  return `${sanitizeFileName(parts.join("_"))}.pdf`;
+}
+
+function sanitizeFileName(value) {
+  return String(value || "retro_dis")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, " ")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "") || "retro_dis";
+}
+
+function formatPdfDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
 function handleSupportButtonClick() {
@@ -460,7 +687,7 @@ function refreshSupportToolbar(selectedFileName = "") {
     : "Sube una base por cada sigla visible con observaciones.";
 
   els.supportToolbarCopy.textContent = label;
-  els.supportToolbarActions.innerHTML = laboratoryGroups.map(group => `
+  const uploadButtons = laboratoryGroups.map(group => `
     <button
       type="button"
       class="ghost-button support-toolbar-button"
@@ -470,9 +697,24 @@ function refreshSupportToolbar(selectedFileName = "") {
     >${state.isUploadingSupport && state.pendingUploadLaboratory === group.laboratory ? `Subiendo ${escapeHtml(group.laboratory)}...` : `Subir ${escapeHtml(group.laboratory)}`}</button>
   `).join("");
 
+  const pdfButton = `
+    <button
+      type="button"
+      class="ghost-button support-toolbar-button pdf-button"
+      data-role="generate-pdf"
+      ${!targetRows.length || state.isGeneratingPdf ? "disabled" : ""}
+    >${state.isGeneratingPdf ? "Generando PDF..." : "Generar PDF"}</button>
+  `;
+
+  els.supportToolbarActions.innerHTML = `${uploadButtons}${pdfButton}`;
+
   els.supportToolbarActions.querySelectorAll('[data-role="upload-laboratory"]').forEach(button => {
     button.addEventListener("click", () => queueSupportUpload(button.dataset.laboratory));
   });
+  const pdfButtonNode = els.supportToolbarActions.querySelector('[data-role="generate-pdf"]');
+  if (pdfButtonNode) {
+    pdfButtonNode.addEventListener("click", generatePdfSupport);
+  }
   refreshLoadedSupportIndicator();
 }
 
@@ -497,7 +739,8 @@ async function saveResponseRemote(row) {
       sheetName: state.currentSheetName,
       email: state.authorizedEmail,
       rowNumber: row.rowNumber,
-      response: row.response
+      response: row.response,
+      labResponse: row.labResponse
     })
   });
 
@@ -507,7 +750,7 @@ async function saveResponseRemote(row) {
 
   const payload = await response.json();
   if (!payload.success) {
-    throw new Error(payload.message || "No fue posible guardar la respuesta.");
+    throw new Error(payload.message || "No fue posible guardar la observacion.");
   }
 }
 
@@ -554,14 +797,16 @@ async function uploadSupportRemote(rows, file, base64Data) {
   return payload;
 }
 
-function updateRowStatus(row, className) {
-  const statusNode = els.tablaRetroBody.querySelector(`[data-role="status"][data-row-key="${CSS.escape(getRowKey(row))}"]`);
+function updateRowStatus(row, roleOrClassName, className) {
+  const role = className === undefined ? "status" : roleOrClassName;
+  const statusClass = className === undefined ? roleOrClassName : className;
+  const statusNode = els.tablaRetroBody.querySelector(`[data-role="${role}"][data-row-key="${CSS.escape(getRowKey(row))}"]`);
   if (!statusNode) {
     return;
   }
 
-  statusNode.textContent = row.statusText;
-  statusNode.className = `row-status ${className || ""}`.trim();
+  statusNode.textContent = role === "labStatus" ? row.labStatusText : row.statusText;
+  statusNode.className = `row-status ${statusClass || ""}`.trim();
 }
 
 function updateAccessBanner(message) {
