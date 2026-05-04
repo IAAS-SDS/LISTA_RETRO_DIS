@@ -1,5 +1,5 @@
 const CONFIG = {
-  appsScriptUrl: "https://script.google.com/macros/s/AKfycbxAlqgoBhCfYakuk3OigiWN9cz9pvTSYSBprvsiSH5XHtNFCQDQNswpWUyg1YwTMq3M/exec",
+  appsScriptUrl: "https://script.google.com/macros/s/AKfycbw28ngeUefxPwaMbvAkdqptJL8UpemBqDRMz9gDBBFs1rKdYXFbKytOE5brKqqY246d/exec",
   maxUploadSizeMb: 10,
   allowedUploadExtensions: [
     "SIR", "DBF", "COL", "ACP", "BIS", "CCC", "CVC", "CAF", "CSB", "FTI",
@@ -130,6 +130,7 @@ async function loadAllData(forceRemoteRefresh = false) {
 
   try {
     const payload = await fetchDataset(forceRemoteRefresh);
+    const isReadOnlyGlobal = Boolean(payload.readOnlyGlobal);
     refreshEditingRules();
     state.rows = normalizeRows(payload.rows || []);
     populateLaboratoryFilter();
@@ -145,7 +146,9 @@ async function loadAllData(forceRemoteRefresh = false) {
     }
 
     updateAccessBanner(`Correo autorizado: ${state.authorizedEmail}.`);
-    if (state.editingLocked) {
+    if (isReadOnlyGlobal) {
+      setScreenStatus(`Acceso global de solo lectura activo. Se cargaron ${state.rows.length} registros.`);
+    } else if (state.editingLocked) {
       setScreenStatus(`Edicion deshabilitada para ${formatSheetLabel(state.currentSheetName)}. Fecha limite: ${formatDeadlineForDisplay(state.activeDeadline)}.`);
     } else if (hasLoadedSupportInVisibleRows()) {
       setScreenStatus(`Ya existe una base cargada para los ${state.rows.length} registros visibles.`);
@@ -197,9 +200,13 @@ function normalizeRows(rows) {
     response: row.response || "",
     labResponse: row.labResponse || "",
     linkBase: row.linkBase || "",
+    canEditResponse: Boolean(row.canEditResponse),
+    canEditLabResponse: Boolean(row.canEditLabResponse),
+    canUploadSupport: Boolean(row.canUploadSupport),
+    canViewSupervisor: Boolean(row.canViewSupervisor),
     isSaving: false,
-    statusText: row.response ? "Observacion cargada." : "Sin observacion registrada.",
-    labStatusText: row.labResponse ? "Observacion cargada." : "Sin observacion registrada."
+    statusText: getFieldInitialStatusText("response", row),
+    labStatusText: getFieldInitialStatusText("labResponse", row)
   }));
 }
 
@@ -211,7 +218,11 @@ function renderRows() {
 
   const html = state.filteredRows.map(row => {
     const saveLabel = row.isSaving ? "Guardando..." : "Guardar";
-    const statusClass = row.isSaving ? "pending" : row.response.trim() ? "success" : "";
+    const responseDisabled = state.editingLocked || !row.canEditResponse;
+    const labResponseDisabled = state.editingLocked || !row.canEditLabResponse;
+    const saveDisabled = row.isSaving || state.editingLocked || !canSaveRow(row);
+    const statusClass = getFieldStatusClass(row.statusText, row.response);
+    const labStatusClass = getFieldStatusClass(row.labStatusText, row.labResponse);
 
     return `
       <tr data-row-key="${escapeHtml(getRowKey(row))}">
@@ -227,11 +238,11 @@ function renderRows() {
             class="row-response"
             data-role="response"
             data-row-key="${escapeHtml(getRowKey(row))}"
-            placeholder="Escribe aqui las observaciones de la UPGD..."
-            ${state.editingLocked ? "disabled" : ""}
+            placeholder="Escribe aqui las observaciones de epidemiologia..."
+            ${responseDisabled ? "disabled" : ""}
           >${escapeHtml(row.response)}</textarea>
           <div class="row-status ${statusClass}" data-role="status" data-row-key="${escapeHtml(getRowKey(row))}">
-            ${escapeHtml(state.editingLocked ? `Edicion cerrada. Fecha limite: ${formatDeadlineForDisplay(state.activeDeadline)}.` : row.statusText)}
+            ${escapeHtml(getRenderedFieldStatusText(row, "response"))}
           </div>
         </td>
         <td class="cell-response">
@@ -240,10 +251,10 @@ function renderRows() {
             data-role="labResponse"
             data-row-key="${escapeHtml(getRowKey(row))}"
             placeholder="Escribe aqui las observaciones de laboratorio..."
-            ${state.editingLocked ? "disabled" : ""}
+            ${labResponseDisabled ? "disabled" : ""}
           >${escapeHtml(row.labResponse)}</textarea>
-          <div class="row-status ${row.isSaving ? "pending" : row.labResponse.trim() ? "success" : ""}" data-role="labStatus" data-row-key="${escapeHtml(getRowKey(row))}">
-            ${escapeHtml(state.editingLocked ? `Edicion cerrada. Fecha limite: ${formatDeadlineForDisplay(state.activeDeadline)}.` : row.labStatusText)}
+          <div class="row-status ${labStatusClass}" data-role="labStatus" data-row-key="${escapeHtml(getRowKey(row))}">
+            ${escapeHtml(getRenderedFieldStatusText(row, "labResponse"))}
           </div>
         </td>
         <td>
@@ -252,7 +263,7 @@ function renderRows() {
             class="save-button"
             data-role="save"
             data-row-key="${escapeHtml(getRowKey(row))}"
-            ${row.isSaving || state.editingLocked ? "disabled" : ""}
+            ${saveDisabled ? "disabled" : ""}
           >${saveLabel}</button>
         </td>
       </tr>
@@ -292,7 +303,7 @@ function bindRowEvents() {
   els.tablaRetroBody.querySelectorAll('[data-role="response"]').forEach(textarea => {
     textarea.addEventListener("input", event => {
       const row = state.rows.find(item => getRowKey(item) === textarea.dataset.rowKey);
-      if (!row) {
+      if (!row || !row.canEditResponse) {
         return;
       }
 
@@ -307,7 +318,7 @@ function bindRowEvents() {
   els.tablaRetroBody.querySelectorAll('[data-role="labResponse"]').forEach(textarea => {
     textarea.addEventListener("input", event => {
       const row = state.rows.find(item => getRowKey(item) === textarea.dataset.rowKey);
-      if (!row) {
+      if (!row || !row.canEditLabResponse) {
         return;
       }
 
@@ -373,20 +384,37 @@ async function saveRow(rowKey) {
     return;
   }
 
+  if (!canSaveRow(row)) {
+    setScreenStatus("Este correo solo tiene permiso de lectura para este laboratorio.");
+    return;
+  }
+
   row.isSaving = true;
-  row.statusText = "Guardando cambios...";
-  row.labStatusText = "Guardando cambios...";
+  if (row.canEditResponse) {
+    row.statusText = "Guardando cambios...";
+  }
+  if (row.canEditLabResponse) {
+    row.labStatusText = "Guardando cambios...";
+  }
   syncFilteredRow(row);
   renderRows();
 
   try {
     await saveResponseRemote(row);
-    row.statusText = "Observacion guardada correctamente.";
-    row.labStatusText = "Observacion guardada correctamente.";
+    if (row.canEditResponse) {
+      row.statusText = "Observacion guardada correctamente.";
+    }
+    if (row.canEditLabResponse) {
+      row.labStatusText = "Observacion guardada correctamente.";
+    }
   } catch (error) {
     console.error("Error guardando observaciones:", error);
-    row.statusText = "No se pudo guardar la observacion.";
-    row.labStatusText = "No se pudo guardar la observacion.";
+    if (row.canEditResponse) {
+      row.statusText = "No se pudo guardar la observacion.";
+    }
+    if (row.canEditLabResponse) {
+      row.labStatusText = "No se pudo guardar la observacion.";
+    }
   } finally {
     row.isSaving = false;
     syncFilteredRow(row);
@@ -395,7 +423,7 @@ async function saveRow(rowKey) {
 }
 
 async function generatePdfSupport() {
-  const rows = getSupportTargetRows();
+  const rows = getPdfTargetRows();
   if (state.isGeneratingPdf) {
     return;
   }
@@ -675,16 +703,21 @@ function getSupportTargetRows(laboratory = "") {
   return state.filteredRows.filter(row => {
     const hasFeedback = String(row.feedback || "").trim();
     const matchesLaboratory = !laboratory || row.laboratory === laboratory;
-    return hasFeedback && matchesLaboratory;
+    return hasFeedback && matchesLaboratory && row.canUploadSupport;
   });
+}
+
+function getPdfTargetRows() {
+  return state.filteredRows.filter(row => String(row.feedback || "").trim());
 }
 
 function refreshSupportToolbar(selectedFileName = "") {
   const targetRows = getSupportTargetRows();
+  const pdfRows = getPdfTargetRows();
   const laboratoryGroups = getSupportLaboratoryGroups();
   const label = targetRows.length
     ? `Registros visibles con observaciones: ${targetRows.length}${selectedFileName ? ` | Archivo: ${selectedFileName}` : ""}`
-    : "Sube una base por cada sigla visible con observaciones.";
+    : "No tienes permisos para subir base en los registros visibles.";
 
   els.supportToolbarCopy.textContent = label;
   const uploadButtons = laboratoryGroups.map(group => `
@@ -702,7 +735,7 @@ function refreshSupportToolbar(selectedFileName = "") {
       type="button"
       class="ghost-button support-toolbar-button pdf-button"
       data-role="generate-pdf"
-      ${!targetRows.length || state.isGeneratingPdf ? "disabled" : ""}
+      ${!pdfRows.length || state.isGeneratingPdf ? "disabled" : ""}
     >${state.isGeneratingPdf ? "Generando PDF..." : "Generar PDF"}</button>
   `;
 
@@ -839,7 +872,7 @@ function refreshLoadedSupportIndicator() {
 }
 
 function hasLoadedSupportInVisibleRows() {
-  return getSupportTargetRows().some(row => String(row.linkBase || "").trim());
+  return getPdfTargetRows().some(row => String(row.linkBase || "").trim());
 }
 
 function refreshSuccessBadges() {
@@ -849,6 +882,53 @@ function refreshSuccessBadges() {
   els.successBadges.innerHTML = loadedGroups
     .map(group => `<span class="success-badge-inline">Soporte cargado ${escapeHtml(group.laboratory)}</span>`)
     .join("");
+}
+
+function getFieldInitialStatusText(fieldName, row) {
+  if (!canEditField(row, fieldName)) {
+    return getReadOnlyFieldStatusText(fieldName);
+  }
+
+  const value = fieldName === "labResponse" ? row.labResponse : row.response;
+  return String(value || "").trim() ? "Observacion cargada." : "Sin observacion registrada.";
+}
+
+function getRenderedFieldStatusText(row, fieldName) {
+  if (state.editingLocked) {
+    return `Edicion cerrada. Fecha limite: ${formatDeadlineForDisplay(state.activeDeadline)}.`;
+  }
+
+  if (!canEditField(row, fieldName)) {
+    return getReadOnlyFieldStatusText(fieldName);
+  }
+
+  return fieldName === "labResponse" ? row.labStatusText : row.statusText;
+}
+
+function getReadOnlyFieldStatusText(fieldName) {
+  return fieldName === "labResponse"
+    ? "Solo lectura. Este campo lo edita laboratorio."
+    : "Solo lectura. Este campo lo edita epidemiologia.";
+}
+
+function canEditField(row, fieldName) {
+  return fieldName === "labResponse" ? row.canEditLabResponse : row.canEditResponse;
+}
+
+function canSaveRow(row) {
+  return Boolean(row && (row.canEditResponse || row.canEditLabResponse));
+}
+
+function getFieldStatusClass(statusText, value) {
+  if (String(statusText || "").includes("Solo lectura")) {
+    return "";
+  }
+
+  if (String(statusText || "").includes("pendientes") || String(statusText || "").includes("Guardando")) {
+    return "pending";
+  }
+
+  return String(value || "").trim() ? "success" : "";
 }
 
 function toggleReload(disabled) {

@@ -6,7 +6,7 @@ Formulario web para revisar retroalimentacion DIS filtrada por correo autorizado
 
 - `login.html` valida el correo contra la hoja `ACCESO`.
 - `index.html`, `styles.css` y `script.js` forman la interfaz.
-- `Code.gs` consulta Google Sheets, filtra por laboratorio usando las siglas asociadas al correo y guarda `OBSERVACIONES DE UPGD`, `OBSERVACIONES DE LABORATORIO` y el link de base.
+- `Code.gs` consulta Google Sheets, filtra por laboratorio usando las siglas asociadas al correo y separa permisos de epidemiologia, laboratorio y supervisor.
 - La interfaz permite descargar un PDF consolidado con todos los registros visibles.
 
 ## Estructura asumida del archivo
@@ -41,5 +41,11 @@ Formulario web para revisar retroalimentacion DIS filtrada por correo autorizado
 
 - La hoja `ACCESO` debe tener:
   - Columna `B`: sigla
-  - Columna `C`: correo autorizado
-- Cada correo solo ve filas cuyo laboratorio coincida con alguna sigla autorizada.
+  - Columna `C`: correo de epidemiologia
+  - Columna `D`: correo de laboratorio
+  - Columna `E`: correo supervisor
+- Epidemiologia edita `OBSERVACIONES DE UPGD` y carga soportes.
+- Laboratorio edita `OBSERVACIONES DE LABORATORIO`.
+- Si la columna `D` esta vacia para una sigla, el correo de epidemiologia tambien puede editar laboratorio.
+- Supervisor solo ve los registros de sus siglas, sin modificar informacion.
+- El correo administrador conserva acceso total.

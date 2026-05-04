@@ -16,6 +16,13 @@ const COLUMNS = {
   linkBase: 133
 };
 
+const ACCESS_COLUMNS = {
+  sigla: 2,
+  epidemiologyEmail: 3,
+  laboratoryEmail: 4,
+  supervisorEmail: 5
+};
+
 const DRIVE_FOLDER_IDS = {
   ENERO: "1ZnkQnEf5dj-gMn2mq5Hfd2AVsUQnRSGe",
   FEBRERO: "1FyYcD34KQBJDsu3po_t1AlJ_z32a3FSV",
@@ -44,6 +51,10 @@ const ALLOWED_UPLOAD_EXTENSIONS = [
 
 const ADMIN_EMAILS = [
   "infeccionesasociadassaludiaas@gmail.com"
+];
+
+const READ_ONLY_GLOBAL_EMAILS = [
+  "talentopic@saludcapital.gov.co"
 ];
 
 function doGet(e) {
@@ -100,9 +111,31 @@ function saveResponse_(payload) {
     throw new Error("Numero de fila no valido.");
   }
 
-  assertRowEmailAuthorized_(sheet, rowNumber, email);
-  sheet.getRange(rowNumber, COLUMNS.response).setValue(payload.response || "");
-  sheet.getRange(rowNumber, COLUMNS.labResponse).setValue(payload.labResponse || "");
+  const permissions = getRowPermissions_(sheet, rowNumber, email);
+  if (!permissions.canEditResponse && !permissions.canEditLabResponse) {
+    throw new Error("El correo no tiene permiso para modificar este laboratorio.");
+  }
+
+  const currentResponse = sheet.getRange(rowNumber, COLUMNS.response).getDisplayValue();
+  const currentLabResponse = sheet.getRange(rowNumber, COLUMNS.labResponse).getDisplayValue();
+  const nextResponse = payload.response || "";
+  const nextLabResponse = payload.labResponse || "";
+
+  if (!permissions.canEditResponse && nextResponse !== currentResponse) {
+    throw new Error("El correo no tiene permiso para editar las observaciones de epidemiologia.");
+  }
+
+  if (!permissions.canEditLabResponse && nextLabResponse !== currentLabResponse) {
+    throw new Error("El correo no tiene permiso para editar las observaciones de laboratorio.");
+  }
+
+  if (permissions.canEditResponse) {
+    sheet.getRange(rowNumber, COLUMNS.response).setValue(nextResponse);
+  }
+
+  if (permissions.canEditLabResponse) {
+    sheet.getRange(rowNumber, COLUMNS.labResponse).setValue(nextLabResponse);
+  }
 
   return jsonOutput({
     success: true,
@@ -131,7 +164,7 @@ function uploadSupport_(payload) {
   }
 
   rowNumbers.forEach(rowNumber => {
-    assertRowEmailAuthorized_(sheet, rowNumber, email);
+    assertRowPermission_(sheet, rowNumber, email, "support");
   });
 
   validateUploadFileName_(fileName, sheetName, sheet.getRange(rowNumbers[0], COLUMNS.laboratory).getDisplayValue());
@@ -166,7 +199,8 @@ function buildDataset_(sheetName, email) {
   const totalRows = Math.max(lastRow - DATA_START_ROW + 1, 0);
   const normalizedEmail = normalizeEmail_(email);
   const isAdmin = isAdminEmail_(normalizedEmail);
-  const allowedSiglas = isAdmin ? [] : getAuthorizedSiglasForEmail_(normalizedEmail);
+  const isReadOnlyGlobal = isReadOnlyGlobalEmail_(normalizedEmail);
+  const accessRules = getAccessRules_();
 
   const rows = [];
 
@@ -185,7 +219,8 @@ function buildDataset_(sheetName, email) {
         return;
       }
 
-      if (!isAdmin && (!normalizedEmail || !allowedSiglas.includes(laboratory))) {
+      const permissions = getPermissionsForLaboratory_(laboratory, normalizedEmail, isAdmin, accessRules);
+      if (!isAdmin && !isReadOnlyGlobal && !permissions.canEditResponse && !permissions.canEditLabResponse && !permissions.canViewSupervisor) {
         return;
       }
 
@@ -200,7 +235,11 @@ function buildDataset_(sheetName, email) {
         feedback,
         response: row[COLUMNS.response - 1] || "",
         labResponse: row[COLUMNS.labResponse - 1] || "",
-        linkBase: row[COLUMNS.linkBase - 1] || ""
+        linkBase: row[COLUMNS.linkBase - 1] || "",
+        canEditResponse: permissions.canEditResponse,
+        canEditLabResponse: permissions.canEditLabResponse,
+        canUploadSupport: permissions.canUploadSupport,
+        canViewSupervisor: permissions.canViewSupervisor
       });
     });
   }
@@ -210,6 +249,7 @@ function buildDataset_(sheetName, email) {
       success: true,
       accessDenied: true,
       message: `El correo ${normalizedEmail} no cuenta con acceso.`,
+      readOnlyGlobal: false,
       rows: []
     };
   }
@@ -217,6 +257,7 @@ function buildDataset_(sheetName, email) {
   return {
     success: true,
     accessDenied: false,
+    readOnlyGlobal: isReadOnlyGlobal,
     rows
   };
 }
@@ -240,6 +281,17 @@ function validateEmailAccess_(email) {
       email: normalizedEmail,
       sheets: getSpreadsheet_().getSheets().map(sheet => sheet.getName()),
       isAdmin: true
+    };
+  }
+
+  if (isReadOnlyGlobalEmail_(normalizedEmail)) {
+    return {
+      success: true,
+      accessGranted: true,
+      message: "Correo autorizado con acceso global de solo lectura.",
+      email: normalizedEmail,
+      sheets: getSpreadsheet_().getSheets().map(sheet => sheet.getName()),
+      isReadOnlyGlobal: true
     };
   }
 
@@ -268,31 +320,18 @@ function getAuthorizedSiglasForEmail_(email) {
     return [];
   }
 
-  const accessSheet = getSheet_(ACCESS_SHEET_NAME);
-  const lastRow = accessSheet.getLastRow();
-  const totalRows = Math.max(lastRow - 1, 0);
-
-  if (!totalRows) {
-    return [];
-  }
-
-  const values = accessSheet.getRange(2, 1, totalRows, 3).getDisplayValues();
+  const accessRules = getAccessRules_();
   const siglas = [];
 
-  values.forEach(row => {
-    const sigla = String(row[1] || "").trim().toUpperCase();
-    const authorizedCell = String(row[2] || "");
+  Object.keys(accessRules).forEach(sigla => {
+    const rule = accessRules[sigla];
+    const allAuthorized = [
+      ...rule.epidemiologyEmails,
+      ...rule.laboratoryEmails,
+      ...rule.supervisorEmails
+    ];
 
-    if (!sigla || !authorizedCell) {
-      return;
-    }
-
-    const emails = authorizedCell
-      .split(/[,;\n]/)
-      .map(item => normalizeEmail_(item))
-      .filter(item => item && item !== "-" && item !== "--" && item !== "---" && item !== "-----------");
-
-    if (emails.includes(normalizedEmail) && !siglas.includes(sigla)) {
+    if (allAuthorized.includes(normalizedEmail) && !siglas.includes(sigla)) {
       siglas.push(sigla);
     }
   });
@@ -300,23 +339,27 @@ function getAuthorizedSiglasForEmail_(email) {
   return siglas;
 }
 
-function assertRowEmailAuthorized_(sheet, rowNumber, email) {
+function assertRowPermission_(sheet, rowNumber, email, permissionType) {
   const normalizedEmail = normalizeEmail_(email);
 
   if (!normalizedEmail) {
     throw new Error("No se recibio un correo autorizado.");
   }
 
-  if (isAdminEmail_(normalizedEmail)) {
+  const permissions = getRowPermissions_(sheet, rowNumber, normalizedEmail);
+  const isAllowed = permissionType === "labResponse"
+    ? permissions.canEditLabResponse
+    : permissions.canEditResponse;
+
+  if (isAllowed) {
     return;
   }
 
-  const laboratory = String(sheet.getRange(rowNumber, COLUMNS.laboratory).getDisplayValue() || "").trim();
-  const allowedSiglas = getAuthorizedSiglasForEmail_(normalizedEmail);
-
-  if (!laboratory || !allowedSiglas.includes(laboratory)) {
-    throw new Error("El correo no tiene permiso para modificar este laboratorio.");
+  if (permissionType === "labResponse") {
+    throw new Error("El correo no tiene permiso para editar las observaciones de laboratorio.");
   }
+
+  throw new Error("El correo no tiene permiso para modificar este laboratorio.");
 }
 
 function getSpreadsheet_() {
@@ -342,6 +385,93 @@ function getSheetName_(sheetName) {
 
 function isAdminEmail_(email) {
   return ADMIN_EMAILS.includes(normalizeEmail_(email));
+}
+
+function isReadOnlyGlobalEmail_(email) {
+  return READ_ONLY_GLOBAL_EMAILS.includes(normalizeEmail_(email));
+}
+
+function getRowPermissions_(sheet, rowNumber, email) {
+  const normalizedEmail = normalizeEmail_(email);
+  if (!normalizedEmail) {
+    return {
+      canEditResponse: false,
+      canEditLabResponse: false,
+      canUploadSupport: false,
+      canViewSupervisor: false
+    };
+  }
+
+  const laboratory = String(sheet.getRange(rowNumber, COLUMNS.laboratory).getDisplayValue() || "").trim();
+  return getPermissionsForLaboratory_(laboratory, normalizedEmail, isAdminEmail_(normalizedEmail));
+}
+
+function getPermissionsForLaboratory_(laboratory, email, isAdmin, accessRules) {
+  if (isAdmin) {
+    return {
+      canEditResponse: true,
+      canEditLabResponse: true,
+      canUploadSupport: true,
+      canViewSupervisor: true
+    };
+  }
+
+  const normalizedSigla = String(laboratory || "").trim().toUpperCase();
+  const normalizedEmail = normalizeEmail_(email);
+  const rules = accessRules || getAccessRules_();
+  const rule = rules[normalizedSigla] || {
+    epidemiologyEmails: [],
+    laboratoryEmails: [],
+    supervisorEmails: []
+  };
+
+  const canEditResponse = rule.epidemiologyEmails.includes(normalizedEmail);
+  const canEditLabResponse = rule.laboratoryEmails.length
+    ? rule.laboratoryEmails.includes(normalizedEmail)
+    : canEditResponse;
+  const canViewSupervisor = rule.supervisorEmails.includes(normalizedEmail);
+
+  return {
+    canEditResponse,
+    canEditLabResponse,
+    canUploadSupport: canEditResponse,
+    canViewSupervisor
+  };
+}
+
+function getAccessRules_() {
+  const accessSheet = getSheet_(ACCESS_SHEET_NAME);
+  const lastRow = accessSheet.getLastRow();
+  const totalRows = Math.max(lastRow - 1, 0);
+
+  if (!totalRows) {
+    return {};
+  }
+
+  const values = accessSheet.getRange(2, 1, totalRows, ACCESS_COLUMNS.supervisorEmail).getDisplayValues();
+  const rules = {};
+
+  values.forEach(row => {
+    const sigla = String(row[ACCESS_COLUMNS.sigla - 1] || "").trim().toUpperCase();
+    if (!sigla) {
+      return;
+    }
+
+    rules[sigla] = {
+      epidemiologyEmails: getAuthorizedOptions_(row[ACCESS_COLUMNS.epidemiologyEmail - 1]),
+      laboratoryEmails: getAuthorizedOptions_(row[ACCESS_COLUMNS.laboratoryEmail - 1]),
+      supervisorEmails: getAuthorizedOptions_(row[ACCESS_COLUMNS.supervisorEmail - 1])
+    };
+  });
+
+  return rules;
+}
+
+function getAuthorizedOptions_(authorizedCell) {
+  return String(authorizedCell || "")
+    .split(/[,;\n]/)
+    .map(item => normalizeEmail_(item))
+    .filter(item => item && item !== "-" && item !== "--" && item !== "---" && item !== "-----------");
 }
 
 function normalizeEmail_(value) {
