@@ -16,7 +16,7 @@ const CONFIG = {
   adminEmails: ["infeccionesasociadassaludiaas@gmail.com"],
   editDeadlines: {
     BOG_ENE_2026: "2026-02-15",
-    BOG_FEB_2026: "2026-05-05",
+    BOG_FEB_2026: "2026-05-20",
     BOG_MAR_2026: "2026-04-15",
     BOG_ABR_2026: "2026-05-15",
     BOG_MAY_2026: "2026-06-15",
