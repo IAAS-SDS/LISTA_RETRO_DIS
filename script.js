@@ -1,5 +1,5 @@
 const CONFIG = {
-  appsScriptUrl: "https://script.google.com/macros/s/AKfycbw28ngeUefxPwaMbvAkdqptJL8UpemBqDRMz9gDBBFs1rKdYXFbKytOE5brKqqY246d/exec",
+  appsScriptUrl: "https://script.google.com/macros/s/AKfycbyqTJrpWSgpJ1DYK3ZqJbwVDhbHsnfNu1agDCVRO2sp9clsaaOmc7W3PDm4KS-0iInC/exec",
   maxUploadSizeMb: 10,
   allowedUploadExtensions: [
     "SIR", "DBF", "COL", "ACP", "BIS", "CCC", "CVC", "CAF", "CSB", "FTI",
@@ -11,13 +11,26 @@ const CONFIG = {
     "MFI", "MEF", "HSJ", "HDB", "HDS", "HCH", "HDF", "JEG", "IMI", "HDT",
     "SAP", "HEN", "TUN", "UMO", "PSS"
   ],
-  defaultSheetName: "BOG_FEB_2026",
-  availableSheets: ["BOG_FEB_2026"],
+  defaultSheetName: "BOG_MAR_2026",
+  availableSheets: [
+    "BOG_ENE_2026",
+    "BOG_FEB_2026",
+    "BOG_MAR_2026",
+    "BOG_ABR_2026",
+    "BOG_MAY_2026",
+    "BOG_JUN_2026",
+    "BOG_JUL_2026",
+    "BOG_AGO_2026",
+    "BOG_SEP_2026",
+    "BOG_OCT_2026",
+    "BOG_NOV_2026",
+    "BOG_DIC_2026"
+  ],
   adminEmails: ["infeccionesasociadassaludiaas@gmail.com"],
   editDeadlines: {
-    BOG_ENE_2026: "2026-02-15",
-    BOG_FEB_2026: "2026-05-20",
-    BOG_MAR_2026: "2026-04-15",
+    BOG_ENE_2026: "2026-06-15",
+    BOG_FEB_2026: "2026-06-15",
+    BOG_MAR_2026: "2026-06-15",
     BOG_ABR_2026: "2026-05-15",
     BOG_MAY_2026: "2026-06-15",
     BOG_JUN_2026: "2026-07-15",
@@ -41,7 +54,9 @@ const state = {
   laboratoryFilter: "",
   pendingUploadLaboratory: "",
   editingLocked: false,
-  activeDeadline: ""
+  activeDeadline: "",
+  sortKey: "",
+  sortDirection: "asc"
 };
 
 const els = {
@@ -89,6 +104,9 @@ function bindEvents() {
   els.btnRecargar.addEventListener("click", () => loadAllData(true));
   els.supportFileInput.addEventListener("change", handleSupportFileSelected);
   els.supportFileInput.setAttribute("accept", getAllowedExtensionsAccept());
+  document.querySelectorAll("[data-sort-key]").forEach(header => {
+    header.addEventListener("click", () => handleSort(header.dataset.sortKey));
+  });
 }
 
 function isAdminUser() {
@@ -148,6 +166,8 @@ async function loadAllData(forceRemoteRefresh = false) {
     updateAccessBanner(`Correo autorizado: ${state.authorizedEmail}.`);
     if (isReadOnlyGlobal) {
       setScreenStatus(`Acceso global de solo lectura activo. Se cargaron ${state.rows.length} registros.`);
+    } else if (!state.rows.length) {
+      setScreenStatus(`No hay registros visibles para ${formatSheetLabel(state.currentSheetName)} con este correo.`);
     } else if (state.editingLocked) {
       setScreenStatus(`Edicion deshabilitada para ${formatSheetLabel(state.currentSheetName)}. Fecha limite: ${formatDeadlineForDisplay(state.activeDeadline)}.`);
     } else if (hasLoadedSupportInVisibleRows()) {
@@ -370,7 +390,78 @@ function applyFilters() {
     return joined.includes(query);
   });
 
+  sortFilteredRows();
   renderRows();
+}
+
+function handleSort(sortKey) {
+  if (!sortKey) {
+    return;
+  }
+
+  if (state.sortKey === sortKey) {
+    state.sortDirection = state.sortDirection === "asc" ? "desc" : "asc";
+  } else {
+    state.sortKey = sortKey;
+    state.sortDirection = "asc";
+  }
+
+  applyFilters();
+}
+
+function sortFilteredRows() {
+  if (!state.sortKey) {
+    updateSortHeaders();
+    return;
+  }
+
+  const direction = state.sortDirection === "desc" ? -1 : 1;
+  state.filteredRows.sort((a, b) => compareRowsByKey(a, b, state.sortKey) * direction);
+  updateSortHeaders();
+}
+
+function compareRowsByKey(a, b, key) {
+  const dateA = key === "specDate" ? parseSortableDate(a[key]) : null;
+  const dateB = key === "specDate" ? parseSortableDate(b[key]) : null;
+
+  if (dateA !== null || dateB !== null) {
+    return (dateA || 0) - (dateB || 0);
+  }
+
+  return String(a[key] || "").localeCompare(String(b[key] || ""), "es", {
+    numeric: true,
+    sensitivity: "base"
+  });
+}
+
+function parseSortableDate(value) {
+  const text = String(value || "").trim();
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3])).getTime();
+  }
+
+  const localMatch = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (localMatch) {
+    return new Date(Number(localMatch[3]), Number(localMatch[2]) - 1, Number(localMatch[1])).getTime();
+  }
+
+  return null;
+}
+
+function updateSortHeaders() {
+  document.querySelectorAll("[data-sort-key]").forEach(header => {
+    const isActive = header.dataset.sortKey === state.sortKey;
+    const icon = header.querySelector(".sort-header-icon");
+    header.classList.toggle("is-sorted", isActive);
+    header.dataset.sortDirection = isActive ? state.sortDirection : "";
+    header.setAttribute("aria-sort", isActive ? (state.sortDirection === "asc" ? "ascending" : "descending") : "none");
+    if (icon) {
+      icon.textContent = isActive
+        ? String.fromCharCode(state.sortDirection === "asc" ? 8593 : 8595)
+        : String.fromCharCode(8597);
+    }
+  });
 }
 
 async function saveRow(rowKey) {
@@ -457,7 +548,7 @@ async function generatePdfSupport() {
 }
 
 async function renderSupportPdf(doc, rows) {
-  const logoDataUrl = await getImageDataUrl("IMAGE/encabezado.png");
+  const logoDataUrl = await getImageDataUrl("IMAGE/Logo_SDS.jpeg");
   rows.forEach((row, index) => {
     if (index > 0) {
       doc.addPage();
@@ -538,7 +629,7 @@ function drawInfoGrid(doc, row, x, y, width) {
 function drawRetroTable(doc, row, x, y, width, bottomLimit) {
   const columns = [
     { title: "OBSERVACIONES", value: row.feedback || "Sin informacion registrada.", width: width * 0.36 },
-    { title: "OBSERVACIONES DE UPGD", value: row.response || "Sin observacion registrada.", width: width * 0.32 },
+    { title: "OBSERVACIONES DE EPIDEMIOLOGIA", value: row.response || "Sin observacion registrada.", width: width * 0.32 },
     { title: "OBSERVACIONES DE LABORATORIO", value: row.labResponse || "Sin observacion registrada.", width: width * 0.32 }
   ];
   const headerHeight = 26;

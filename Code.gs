@@ -1,7 +1,21 @@
 const SPREADSHEET_ID = "1Ca5o6tYxBWbeUx3ZVhafK40kAuUzJJUxCGEFYoMzOt8";
-const DEFAULT_SHEET_NAME = "BOG_FEB_2026";
+const DEFAULT_SHEET_NAME = "BOG_MAR_2026";
 const ACCESS_SHEET_NAME = "ACCESO";
 const DATA_START_ROW = 2;
+const AVAILABLE_SHEET_NAMES = [
+  "BOG_ENE_2026",
+  "BOG_FEB_2026",
+  "BOG_MAR_2026",
+  "BOG_ABR_2026",
+  "BOG_MAY_2026",
+  "BOG_JUN_2026",
+  "BOG_JUL_2026",
+  "BOG_AGO_2026",
+  "BOG_SEP_2026",
+  "BOG_OCT_2026",
+  "BOG_NOV_2026",
+  "BOG_DIC_2026"
+];
 
 const COLUMNS = {
   laboratory: 2,
@@ -201,6 +215,7 @@ function buildDataset_(sheetName, email) {
   const isAdmin = isAdminEmail_(normalizedEmail);
   const isReadOnlyGlobal = isReadOnlyGlobalEmail_(normalizedEmail);
   const accessRules = getAccessRules_();
+  const hasConfiguredAccess = isAdmin || isReadOnlyGlobal || getAuthorizedSiglasFromRules_(normalizedEmail, accessRules).length > 0;
 
   const rows = [];
 
@@ -244,12 +259,12 @@ function buildDataset_(sheetName, email) {
     });
   }
 
-  if (normalizedEmail && !isAdmin && rows.length === 0) {
+  if (!hasConfiguredAccess) {
     return {
       success: true,
       accessDenied: true,
       message: `El correo ${normalizedEmail} no cuenta con acceso.`,
-      readOnlyGlobal: false,
+      readOnlyGlobal: isReadOnlyGlobal,
       rows: []
     };
   }
@@ -310,8 +325,13 @@ function validateEmailAccess_(email) {
     message: "Correo autorizado.",
     email: normalizedEmail,
     siglas,
-    sheets: [DEFAULT_SHEET_NAME]
+    sheets: getAvailableSheetNames_()
   };
+}
+
+function getAvailableSheetNames_() {
+  const spreadsheet = getSpreadsheet_();
+  return AVAILABLE_SHEET_NAMES.filter(sheetName => spreadsheet.getSheetByName(sheetName));
 }
 
 function getAuthorizedSiglasForEmail_(email) {
@@ -320,7 +340,15 @@ function getAuthorizedSiglasForEmail_(email) {
     return [];
   }
 
-  const accessRules = getAccessRules_();
+  return getAuthorizedSiglasFromRules_(normalizedEmail, getAccessRules_());
+}
+
+function getAuthorizedSiglasFromRules_(email, accessRules) {
+  const normalizedEmail = normalizeEmail_(email);
+  if (!normalizedEmail) {
+    return [];
+  }
+
   const siglas = [];
 
   Object.keys(accessRules).forEach(sigla => {
